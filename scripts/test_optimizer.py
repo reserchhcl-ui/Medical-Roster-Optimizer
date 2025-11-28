@@ -76,32 +76,58 @@ def generate_random_doctors(n: int, start_date: date, end_date: date) -> List[Do
     return doctors
 
 def generate_month_slots(start_date: date, days: int) -> List[ShiftSlot]:
-    """Gera slots para o mês inteiro (Diurno e Noturno)"""
+    """Gera slots complexos misturando 12h e 6h"""
     slots = []
-    print(f"📅 Criando grade vazia de {days} dias ({days*2} plantões)...")
+    print(f"📅 Criando grade HÍBRIDA de {days} dias...")
     
     for i in range(days):
         current = start_date + timedelta(days=i)
         
-        # Slot Diurno
-        slots.append(ShiftSlot(
-            id=f"slot_{current}_day",
-            date=current,
-            shift_type=ShiftTypeEnum.DIURNO,
-            required_specialties=[SpecialtyEnum.CLINICA_GERAL],
-            required_count=1,
-            sector_id="Emergencia Geral"
-        ))
+        # Cenário Misto: 
+        # Em alguns dias (impares), o hospital quebra o plantão em Manhã/Tarde
+        # Em dias pares, mantém o padrão 12h.
         
-        # Slot Noturno (Mais difícil de preencher na vida real)
+        if i % 2 != 0: 
+            # === DIA DE PLANTÕES QUEBRADOS (Mais flexibilidade) ===
+            # Slot Manhã (07-13)
+            slots.append(ShiftSlot(
+                id=f"slot_{current}_manha", date=current,
+                shift_type=ShiftTypeEnum.MANHA,
+                required_specialties=[SpecialtyEnum.CLINICA_GERAL],
+                required_count=1, sector_id="Emergencia Triagem"
+            ))
+            # Slot Tarde (13-19)
+            slots.append(ShiftSlot(
+                id=f"slot_{current}_tarde", date=current,
+                shift_type=ShiftTypeEnum.TARDE,
+                required_specialties=[SpecialtyEnum.CLINICA_GERAL],
+                required_count=1, sector_id="Emergencia Triagem"
+            ))
+            # Slot Diurno 12h (Simultâneo em outro setor, ex: UTI)
+            slots.append(ShiftSlot(
+                id=f"slot_{current}_uti_day", date=current,
+                shift_type=ShiftTypeEnum.DIURNO, # Colide com Manhã e Tarde se for o mesmo médico
+                required_specialties=[SpecialtyEnum.CLINICA_GERAL],
+                required_count=1, sector_id="UTI Geral"
+            ))
+        else:
+            # === DIA PADRÃO 12h ===
+            slots.append(ShiftSlot(
+                id=f"slot_{current}_day", date=current,
+                shift_type=ShiftTypeEnum.DIURNO,
+                required_specialties=[SpecialtyEnum.CLINICA_GERAL],
+                required_count=2, # Precisa de 2 médicos de 12h
+                sector_id="Emergencia Geral"
+            ))
+
+        # Noturno sempre fixo 12h
         slots.append(ShiftSlot(
-            id=f"slot_{current}_night",
-            date=current,
+            id=f"slot_{current}_night", date=current,
             shift_type=ShiftTypeEnum.NOTURNO,
             required_specialties=[SpecialtyEnum.CLINICA_GERAL],
-            required_count=1,
-            sector_id="Emergencia Geral"
+            required_count=1, sector_id="Plantão Noturno"
         ))
+        
     return slots
 
 def analyze_results(solutions, doctors, slots_count, duration):

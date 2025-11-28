@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict,Tuple
 from datetime import datetime, date
 from pydantic import BaseModel, Field, validator
 
@@ -15,9 +15,11 @@ class SpecialtyEnum(str, Enum):
     DIAGNOSTICO = "diagnostico"
 
 class ShiftTypeEnum(str, Enum):
-    DIURNO = "diurno"       # 07:00 - 19:00
-    NOTURNO = "noturno"     # 19:00 - 07:00
-    MISTO_24H = "misto_24h" # 07:00 - 07:00 (dia seguinte)
+    DIURNO = "diurno"       # 07:00 - 19:00 (12h)
+    NOTURNO = "noturno"     # 19:00 - 07:00 (12h)
+    MANHA = "manha"         # 07:00 - 13:00 (6h) - NOVO
+    TARDE = "tarde"         # 13:00 - 19:00 (6h) - NOVO
+    MISTO_24H = "misto_24h" # 07:00 - 07:00 (24h)
 
 # --- Entidades Principais ---
 
@@ -48,19 +50,33 @@ class Doctor(BaseModel):
         from_attributes = True
 
 class ShiftSlot(BaseModel):
-    """Representa um 'buraco' na escala que precisa ser preenchido"""
     id: str
     date: date
     shift_type: ShiftTypeEnum
-    required_specialties: List[SpecialtyEnum]
+    required_specialties: List[str] # Simplificando para string para evitar erro de import circular se houver
     required_count: int = Field(1, description="Quantos médicos são necessários neste slot")
-    sector_id: str # Ex: "UTI-A", "Emergencia"
+    sector_id: str
     
     @property
+    def time_interval(self) -> Tuple[int, int]:
+        """
+        Retorna (hora_inicio, hora_fim) baseada em inteiros de 0 a 48.
+        Usamos >24 para tratar a virada da noite se necessário, 
+        mas para colisão diária simples, vamos padronizar:
+        """
+        mapping = {
+            ShiftTypeEnum.MANHA: (7, 13),
+            ShiftTypeEnum.TARDE: (13, 19),
+            ShiftTypeEnum.DIURNO: (7, 19),
+            ShiftTypeEnum.NOTURNO: (19, 31), # 19h até 07h do dia seguinte (19+12)
+            ShiftTypeEnum.MISTO_24H: (7, 31) # 07h até 07h do dia seguinte
+        }
+        return mapping.get(self.shift_type, (0, 0))
+
+    @property
     def hours_duration(self) -> int:
-        if self.shift_type == ShiftTypeEnum.MISTO_24H:
-            return 24
-        return 12
+        start, end = self.time_interval
+        return end - start
 
 class RosterSolution(BaseModel):
     """Saída do algoritmo: Qual médico pega qual slot"""

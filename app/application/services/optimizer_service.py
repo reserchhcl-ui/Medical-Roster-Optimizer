@@ -48,17 +48,43 @@ class RosterOptimizerService:
                 if not doctor_specialties_set.intersection(slot_specialties_set):
                      self.model.Add(shifts[(doctor.id, slot.id)] == 0)
 
-        # H4: Choque de Horário (Simplificado por data/turno)
+        # --- H4: Choque de Horário (Refatorado para Intervalos) ---
+        # Um médico não pode estar em dois slots que colidem no tempo.
+        # Ex: Não pode pegar 'MANHA' (7-13) e 'DIURNO' (7-19) ao mesmo tempo.
+        # Mas PODE pegar 'MANHA' (7-13) e 'TARDE' (13-19).
+        
+        # 1. Agrupar slots por DATA apenas
+        slots_by_date = {}
+        for slot in request.slots_to_fill:
+            if slot.date not in slots_by_date:
+                slots_by_date[slot.date] = []
+            slots_by_date[slot.date].append(slot)
+
         for doctor in request.doctors:
-            slots_by_moment = {} 
-            for slot in request.slots_to_fill:
-                key = (slot.date, slot.shift_type)
-                if key not in slots_by_moment: slots_by_moment[key] = []
-                slots_by_moment[key].append(slot)
-            
-            for key, slots_in_moment in slots_by_moment.items():
-                if len(slots_in_moment) > 1:
-                    self.model.Add(sum(shifts[(doctor.id, s.id)] for s in slots_in_moment) <= 1)
+            for current_date, day_slots in slots_by_date.items():
+                # Comparar todos os slots do dia uns contra os outros (pairwise)
+                # O loop aninhado é ok porque o número de slots num dia é pequeno (<50)
+                for i in range(len(day_slots)):
+                    for j in range(i + 1, len(day_slots)):
+                        slot_a = day_slots[i]
+                        slot_b = day_slots[j]
+
+                        # Obter intervalos
+                        start_a, end_a = slot_a.time_interval
+                        start_b, end_b = slot_b.time_interval
+
+                        # Verifica sobreposição de intervalos
+                        # Lógica: (StartA < EndB) and (StartB < EndA)
+                        # Nota: Se StartB == EndA (ex: 13h), não conta como colisão (troca de turno)
+                        is_overlapping = (start_a < end_b) and (start_b < end_a)
+
+                        if is_overlapping:
+                            # Restrição: A soma das variáveis binárias deve ser <= 1
+                            # Ou seja, o médico escolhe A, ou B, ou NENHUM. Nunca os dois.
+                            self.model.Add(
+                                shifts[(doctor.id, slot_a.id)] + 
+                                shifts[(doctor.id, slot_b.id)] <= 1
+                            )
 
         # H5: Limite Máximo Individual
         for doctor in request.doctors:
