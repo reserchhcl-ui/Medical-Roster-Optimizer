@@ -12,6 +12,7 @@ class SpecialtyEnum(str, Enum):
     ORTOPEDIA = "ortopedia"
     ANESTESIOLOGIA = "anestesiologia"
     CIRURGIA = "cirurgia"
+    DIAGNOSTICO = "diagnostico"
 
 class ShiftTypeEnum(str, Enum):
     DIURNO = "diurno"       # 07:00 - 19:00

@@ -19,7 +19,7 @@ class RosterOptimizerService:
         """
         # 1. Limpeza do estado do modelo para nova execução
         self.model = cp_model.CpModel()
-        
+
         # Estruturas de dados auxiliares para mapeamento
         # shifts[(doctor_id, slot_id)] = variavel_booleana_do_solver
         shifts: Dict[Tuple[str, str], cp_model.IntVar] = {}
@@ -27,7 +27,6 @@ class RosterOptimizerService:
         # Dicionários para acesso rápido aos objetos
         doctors_map = {d.id: d for d in request.doctors}
         slots_map = {s.id: s for s in request.slots_to_fill}
-
         # ==============================================================================
         # 2. CRIAÇÃO DAS VARIÁVEIS DE DECISÃO
         # ==============================================================================
@@ -66,6 +65,7 @@ class RosterOptimizerService:
         # --- H4: Um médico só pode estar em UM lugar por vez no mesmo dia/horário ---
         # Simplificação: Vamos assumir que slots na mesma data colidem se forem do mesmo tipo
         # Em um sistema real, verificaríamos sobreposição de horas exatas.
+
         for doctor in request.doctors:
             # Agrupar slots por data e período (ex: dia 01/01, noturno)
             # Se houver múltiplos slots simultâneos em setores diferentes (UTI A, UTI B), ele só pode pegar 1
@@ -123,11 +123,11 @@ class RosterOptimizerService:
         # 5. RESOLUÇÃO E OUTPUT
         # ==============================================================================
         # Configurar solver para usar todos os cores
-        self.solver.parameters.num_search_workers = 8 
+        self.solver.parameters.num_search_workers = 2 
         status = self.solver.Solve(self.model)
 
         final_roster = []
-
+        print("!!!")
         if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
             print(f"✅ Solução Encontrada! Status: {self.solver.StatusName(status)}")
             print(f"🎯 Valor da Função Objetivo: {self.solver.ObjectiveValue()}")
