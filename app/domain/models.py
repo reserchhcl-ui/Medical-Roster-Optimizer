@@ -79,7 +79,7 @@ class OptimizationRequest(BaseModel):
     # Pesos para a função objetivo (Soft Constraints)
     weight_cost: float = 1.0       # Minimizar custo
     weight_preference: float = 2.0 # Maximizar preferência do médico
-    weight_fairness: float = 1.5   # Maximizar distribuição igualitária
+    weight_fairness: float = 0.0   # Maximizar distribuição igualitária
     
     @validator('period_end')
     def check_dates(cls, v, values):

@@ -1,8 +1,11 @@
 import sys
 import os
+import random
+import time
 from datetime import date, timedelta
+from typing import List
 
-# Adiciona o diretório raiz ao path para importar os módulos
+# Setup de path para reconhecer a pasta app
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from app.domain.models import (
@@ -11,104 +14,176 @@ from app.domain.models import (
 )
 from app.application.services.optimizer_service import RosterOptimizerService
 
-def run_test():
-    print("🏥 Gerando dados de teste para Otimização de Escala...")
+# --- Configurações do Teste de Carga ---
+NUM_DOCTORS = 40
+DAYS_IN_MONTH = 30
+SHIFTS_PER_DAY = 2 # Diurno e Noturno
+TOTAL_SLOTS = DAYS_IN_MONTH * SHIFTS_PER_DAY
 
-    # 1. Criar Médicos (Mock)
+def generate_random_doctors(n: int, start_date: date, end_date: date) -> List[Doctor]:
+    """Gera uma lista heterogênea de médicos com restrições aleatórias"""
     doctors = []
-    
-    # Dr. House (Caro, Clinico, odeia trabalhar as segundas)
-    doc1 = Doctor(
-        id="doc_1", name="Dr. Gregory House", crm="12345",
-        specialties=[SpecialtyEnum.CLINICA_GERAL, SpecialtyEnum.DIAGNOSTICO], # Adicionei Diagnostico mentalmente
-        attributes=DoctorAttributes(seniority_level=5, cost_per_hour=500.0, is_preceptor=True),
-        availability=DoctorAvailability(
-            unavailable_dates=[date(2023, 10, 2)], # Segunda-feira
-            preferred_dates=[date(2023, 10, 5)],
-            max_shifts_per_month=5
-        )
-    )
-    
-    # Dra. Cameron (Pediatra, mais barata, alta disponibilidade)
-    doc2 = Doctor(
-        id="doc_2", name="Dra. Allison Cameron", crm="54321",
-        specialties=[SpecialtyEnum.PEDIATRIA, SpecialtyEnum.CLINICA_GERAL],
-        attributes=DoctorAttributes(seniority_level=2, cost_per_hour=200.0, is_preceptor=False),
-        availability=DoctorAvailability(
-            unavailable_dates=[],
-            preferred_dates=[date(2023, 10, 1), date(2023, 10, 2)],
-            max_shifts_per_month=20
-        )
-    )
+    specialties_pool = [
+        SpecialtyEnum.CLINICA_GERAL, 
+        SpecialtyEnum.PEDIATRIA, 
+        SpecialtyEnum.CARDIOLOGIA
+    ]
 
-    # Dr. Foreman (Neurologista/Clinico, intermediário)
-    doc3 = Doctor(
-        id="doc_3", name="Dr. Eric Foreman", crm="98765",
-        specialties=[SpecialtyEnum.CLINICA_GERAL],
-        attributes=DoctorAttributes(seniority_level=3, cost_per_hour=300.0, is_preceptor=False),
-        availability=DoctorAvailability(
-            unavailable_dates=[date(2023, 10, 5)],
-            max_shifts_per_month=10
-        )
-    )
+    print(f"🎲 Gerando {n} médicos com perfis variados...")
 
-    doctors = [doc1, doc2, doc3]
+    for i in range(1, n + 1):
+        # 70% de chance de ser Generalista (necessário para cobrir o grosso da escala)
+        specs = [SpecialtyEnum.CLINICA_GERAL]
+        if random.random() > 0.7:
+            specs.append(random.choice(specialties_pool))
+            
+        # Nível Senioridade (1 a 5) -> Afeta o custo
+        seniority = random.randint(1, 5)
+        base_cost = 100.0
+        cost = base_cost + (seniority * 50.0) # Senior custa mais
 
-    # 2. Criar Slots (Buracos na escala a preencher)
-    slots = []
-    start_date = date(2023, 10, 1)
-    
-    # Vamos criar uma semana de plantões para Clinica Geral
-    for i in range(7):
-        current_date = start_date + timedelta(days=i)
+        # Gerar dias indisponíveis aleatórios (Ex: 3 a 8 dias no mês que ele NÃO pode)
+        unavailable_count = random.randint(2, 6)
+        all_dates = [start_date + timedelta(days=x) for x in range((end_date - start_date).days + 1)]
+        unavailable_dates = random.sample(all_dates, k=min(unavailable_count, len(all_dates)))
         
-        # Plantão Diurno - Precisa de 1 Clinico
+        # Preferências (Ex: quer trabalhar no dia 15)
+        preferred_dates = []
+        if random.random() > 0.5:
+            preferred_dates.append(start_date + timedelta(days=random.randint(0, 29)))
+
+        # Workload: Alguns querem 4 plantões, outros 12
+        max_shifts = random.randint(4, 12)
+
+        doc = Doctor(
+            id=f"doc_{i:02d}", 
+            name=f"Dr(a). Sobrenome_{i:02d}", 
+            crm=f"CRM-{10000+i}",
+            specialties=specs,
+            attributes=DoctorAttributes(
+                seniority_level=seniority, 
+                cost_per_hour=cost, 
+                is_preceptor=(seniority > 3)
+            ),
+            availability=DoctorAvailability(
+                unavailable_dates=unavailable_dates,
+                preferred_dates=preferred_dates,
+                max_shifts_per_month=max_shifts
+            )
+        )
+        doctors.append(doc)
+    
+    return doctors
+
+def generate_month_slots(start_date: date, days: int) -> List[ShiftSlot]:
+    """Gera slots para o mês inteiro (Diurno e Noturno)"""
+    slots = []
+    print(f"📅 Criando grade vazia de {days} dias ({days*2} plantões)...")
+    
+    for i in range(days):
+        current = start_date + timedelta(days=i)
+        
+        # Slot Diurno
         slots.append(ShiftSlot(
-            id=f"slot_{current_date}_day",
-            date=current_date,
+            id=f"slot_{current}_day",
+            date=current,
             shift_type=ShiftTypeEnum.DIURNO,
             required_specialties=[SpecialtyEnum.CLINICA_GERAL],
             required_count=1,
-            sector_id="Emergencia"
+            sector_id="Emergencia Geral"
         ))
-
-        # Plantão Noturno - Precisa de 1 Clinico
+        
+        # Slot Noturno (Mais difícil de preencher na vida real)
         slots.append(ShiftSlot(
-            id=f"slot_{current_date}_night",
-            date=current_date,
+            id=f"slot_{current}_night",
+            date=current,
             shift_type=ShiftTypeEnum.NOTURNO,
             required_specialties=[SpecialtyEnum.CLINICA_GERAL],
             required_count=1,
-            sector_id="Emergencia"
+            sector_id="Emergencia Geral"
         ))
+    return slots
 
-    # 3. Montar Request
+def analyze_results(solutions, doctors, slots_count, duration):
+    """Gera um relatório de inteligência sobre a escala"""
+    print("\n" + "="*50)
+    print(f"⚡ RELATÓRIO DE PERFORMANCE DA OTIMIZAÇÃO")
+    print("="*50)
+    
+    if not solutions:
+        print("❌ FALHA: Nenhuma solução encontrada. O problema é matematicamente impossível com as restrições atuais.")
+        return
+
+    # Métricas Básicas
+    assigned_slots = len(solutions)
+    coverage_percent = (assigned_slots / slots_count) * 100
+    
+    print(f"⏱️ Tempo de Cálculo: {duration:.4f} segundos")
+    print(f"📈 Cobertura da Escala: {coverage_percent:.1f}% ({assigned_slots}/{slots_count})")
+    
+    # Análise de Custos e Distribuição
+    total_cost = 0.0
+    shifts_per_doc = {d.id: 0 for d in doctors}
+    
+    for sol in solutions:
+        doc = next(d for d in doctors if d.id == sol.doctor_id)
+        shifts_per_doc[doc.id] += 1
+        
+        # Custo estimado (12h por plantão padrão)
+        slot_hours = 12 
+        total_cost += doc.attributes.cost_per_hour * slot_hours
+
+    print(f"💰 Custo Total Estimado: R$ {total_cost:,.2f}")
+    
+    # Análise de Distribuição (Quem trabalhou mais?)
+    active_docs = [count for count in shifts_per_doc.values() if count > 0]
+    avg_shifts = sum(active_docs) / len(active_docs) if active_docs else 0
+    max_shifts = max(shifts_per_doc.values()) if shifts_per_doc.values() else 0
+    min_shifts = min(shifts_per_doc.values())
+    
+    print(f"👥 Médicos Utilizados: {len(active_docs)} de {len(doctors)}")
+    print(f"📊 Média de Plantões/Médico: {avg_shifts:.1f}")
+    print(f"⚖️ Disparidade: Mínimo {min_shifts} - Máximo {max_shifts} plantões")
+    
+    print("\n🔍 TOP 5 Médicos Mais Escalados:")
+    sorted_docs = sorted(shifts_per_doc.items(), key=lambda item: item[1], reverse=True)[:5]
+    for doc_id, count in sorted_docs:
+        doc_name = next(d.name for d in doctors if d.id == doc_id)
+        print(f"   - {doc_name}: {count} plantões")
+
+def run_stress_test():
+    start_date = date(2023, 10, 1)
+    end_date = start_date + timedelta(days=DAYS_IN_MONTH - 1)
+
+    # 1. Preparar Dados
+    doctors = generate_random_doctors(NUM_DOCTORS, start_date, end_date)
+    slots = generate_month_slots(start_date, DAYS_IN_MONTH)
+
+    # 2. Montar Request
+    # Weight Cost alto força o sistema a tentar pegar os médicos mais baratos (Jrs)
+    # Weight Preference força o sistema a respeitar os pedidos
     request = OptimizationRequest(
         period_start=start_date,
-        period_end=start_date + timedelta(days=6),
+        period_end=end_date,
         doctors=doctors,
         slots_to_fill=slots,
-        weight_cost=2.0, # Priorizar economia
-        weight_preference=1.5
+        weight_cost=1.0,       # Custo importa normal
+        weight_preference=1.0, # Preferência importa normal
+        weight_fairness=5.0    # 🔥 FORÇAR DISTRIBUIÇÃO IGUALITÁRIA
     )
 
-    # 4. Executar Otimizador
     optimizer = RosterOptimizerService()
-    try:
-        print("⚙️  Rodando Google OR-Tools CP-SAT...")
-        result = optimizer.solve(request)
-        
-        print(f"\n📊 Resultado Final: {len(result)} plantões alocados de {len(slots)} necessários.")
-        
-        # Exibir escala legível
-        result.sort(key=lambda x: x.date)
-        print("\n--- ESCALA GERADA ---")
-        for entry in result:
-            doc_name = next(d.name for d in doctors if d.id == entry.doctor_id)
-            print(f"📅 {entry.date} | Slot: {entry.slot_id} -> 👨‍⚕️ {doc_name}")
 
-    except Exception as e:
-        print(f"🔥 Erro crítico: {e}")
+    # 3. Executar com cronômetro
+    print(f"\n🚀 Iniciando Motor de Otimização (Google CP-SAT)...")
+    print(f"   Matriz: {len(doctors)} Médicos x {len(slots)} Slots = {len(doctors)*len(slots)} Variáveis de Decisão")
+    
+    start_time = time.time()
+    solutions = optimizer.solve(request)
+    end_time = time.time()
+
+    # 4. Análise
+    analyze_results(solutions, doctors, len(slots), end_time - start_time)
 
 if __name__ == "__main__":
-    run_test()
+    run_stress_test()
